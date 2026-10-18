@@ -55,7 +55,7 @@ A module with its own per-player layer resolves it around the kit. Swipe checks,
 
 ### Options
 
-- `keys`: the lockable setting keys. Only client-scoped settings make sense; leave out settings that change themselves (e.g. ones following the screen size).
+- `keys`: the lockable setting keys. Only client- or user-scoped settings make sense; leave out settings that change themselves (e.g. ones following the screen size).
 - `namespace` and `prefix`: keep the storage under another module, with the keys prefixed (what `LockHost` does).
 - `storage`: keys for the kit's settings, defaulting to `{ states: 'lockStates', values: 'lockValues', applied: 'lockAppliedSoftValues' }`. A module moving from its own lock system can pass its existing keys to keep worlds' locks (Carolingian UI: `v2-setting-enforcement`, `v2-default-settings`).
 
@@ -78,7 +78,7 @@ const host = new LockHost({ hostId: 'crlngn-ui' });
 host.registerSettings();                                       // init
 host.watchSettingsConfig({ titles });                          // icons in Configure Settings
 Hooks.once('setup', () => {
-  if (optedIn) host.lockConfigSettings({ exclude: [] });      // other modules' config: true client settings
+  if (optedIn) host.lockConfigSettings({ exclude: [] });      // other modules' config: true client and user settings
 });
 Hooks.once('ready', () => host.apply());
 
@@ -86,7 +86,7 @@ const locks = host.register('guest-module', ['compact']);     // a guest's own s
 ```
 
 - `register(moduleId, keys)` wraps the onChange of settings already registered in place (`adopt`); for a setting registered later, use `locks.wrapOnChange`. Registering again adds keys.
-- `lockConfigSettings` skips core, the host, excluded modules, world and user settings, and any setting whose onChange a copy of the kit already wraps, so a module locking its own settings is never locked twice. `{ system: true }` includes the game system's settings.
+- `lockConfigSettings` skips the host, excluded modules, world settings, and any setting whose onChange a copy of the kit already wraps, so a module locking its own settings is never locked twice. `{ system: true }` includes the game system's settings, and `{ core: true }` includes Foundry core's.
 - `LockIcons.render(root, locks, { fieldPrefix: 'guest-module.' })` matches fields named `<module id>.<key>`, as in Configure Settings. Several modules' locks can share a form.
 
 Changing a locked setting through the API still reverts for players. A setting that needs a reload gets the GM's value straight away, and it takes effect on the player's next reload (no prompt is shown).

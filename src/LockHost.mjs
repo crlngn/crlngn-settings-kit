@@ -5,21 +5,22 @@
  * world settings under "<module id>.<key>". Two uses:
  * - Guests: a module calls `register(moduleId, keys)` (through the host's API) and gets a
  *   SettingsLocks for its custom menus, without bundling the kit or registering storage itself.
- * - Configure Settings: with `lockConfigSettings`, the host adopts other modules' client settings
- *   shown in Foundry's own settings window (config: true), and `watchSettingsConfig` draws the icons.
+ * - Configure Settings: with `lockConfigSettings`, the host adopts other modules' (and optionally
+ *   core's) client settings shown in Foundry's own settings window (config: true), and
+ *   `watchSettingsConfig` draws the icons.
  * A setting whose onChange a copy of the kit already wraps is never adopted, so it is never locked twice.
  */
 
 import { SettingsLocks } from './SettingsLocks.mjs';
 import { LockIcons } from './LockIcons.mjs';
 
+const LOCKABLE_SCOPES = new Set(['client', 'user']);
+
 const DEFAULT_HOST_STORAGE = {
   states: 'guestLockStates',
   values: 'guestLockValues',
   applied: 'guestLockAppliedSoftValues'
 };
-
-const SKIPPED_NAMESPACES = new Set(['core']);
 
 export class LockHost {
   #hostId;
@@ -98,23 +99,25 @@ export class LockHost {
   }
 
   /**
-   * Adopt the client settings of active modules that are shown in Configure Settings (config: true).
-   * Core, the host's own settings, excluded modules and settings already locked by the kit are skipped.
+   * Adopt the client and user settings of active modules that are shown in Configure Settings (config: true).
+   * The host's own settings, excluded modules and settings already locked by the kit are skipped.
    * Call once every module has registered its settings (setup or ready).
    * @param {object} [options]
    * @param {string[]} [options.exclude]   Module ids to leave alone
    * @param {boolean} [options.system]     Include the game system's settings too
-   * @returns {Record<string, string[]>}   The adopted keys, by module id
+   * @param {boolean} [options.core]       Include Foundry core's settings too
+   * @returns {Record<string, string[]>}   The adopted keys, by module id ("core" for core)
    */
-  lockConfigSettings({ exclude = [], system = false } = {}) {
-    const skipped = new Set([...SKIPPED_NAMESPACES, this.#hostId, ...exclude]);
+  lockConfigSettings({ exclude = [], system = false, core = false } = {}) {
+    const skipped = new Set([this.#hostId, ...exclude]);
     const found = {};
     for (const config of game.settings.settings.values()) {
       const namespace = config.namespace;
-      if (!config.config || config.scope !== 'client' || skipped.has(namespace)) continue;
+      if (!config.config || !LOCKABLE_SCOPES.has(config.scope) || skipped.has(namespace)) continue;
       const isModule = !!game.modules.get(namespace)?.active;
       const isSystem = system && namespace === game.system?.id;
-      if (!isModule && !isSystem) continue;
+      const isCore = core && namespace === 'core';
+      if (!isModule && !isSystem && !isCore) continue;
       if (SettingsLocks.isWrapped(config) && !this.#guests.get(namespace)?.isLockable(config.key)) continue;
       (found[namespace] ??= []).push(config.key);
     }

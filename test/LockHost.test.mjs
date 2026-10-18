@@ -132,3 +132,15 @@ test('excluded modules are left alone', () => {
   const gm = boot(true);
   assert.deepEqual(gm.host.lockConfigSettings({ exclude: [GUEST] }), {});
 });
+
+test('core settings are adopted only with core: true', () => {
+  const gm = boot(true);
+  assert.deepEqual(gm.host.lockConfigSettings({ core: true }), { [GUEST]: ['compact'], core: ['fontSize'] });
+  assert.ok(SettingsLocks.isWrapped(gm.game.settings.settings.get('core.fontSize')));
+});
+
+test('user-scoped settings are adopted like client ones', () => {
+  const gm = boot(true);
+  gm.game.settings.register(GUEST, 'perUser', { scope: 'user', config: true, default: 'a' });
+  assert.deepEqual(gm.host.lockConfigSettings(), { [GUEST]: ['compact', 'perUser'] });
+});
