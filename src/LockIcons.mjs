@@ -7,6 +7,7 @@
  *   right-click toggles gate (locked for players, GM keeps their own value).
  * - Player: a lock icon on fields locked for them, whose inputs are disabled.
  * Styles are injected once per scope selector, so modules bundling their own copy don't clash.
+ * Several modules' locks can render into the same form; each handles clicks on its own icons only.
  */
 
 import { LOCK_STATES, SettingsLocks } from './SettingsLocks.mjs';
@@ -18,27 +19,38 @@ const STATE_ICONS = {
   [LOCK_STATES.GATE]: 'fa-dungeon'
 };
 
+const FIELDS = 'input[name], select[name], textarea[name], range-picker[name], color-picker[name], file-picker[name], multi-select[name], string-tags[name]';
+const CONTROLS = 'input, select, textarea, button, range-picker, color-picker, file-picker, multi-select, string-tags';
+
+const DEFAULT_TITLES = {
+  toggle: 'Click to cycle the lock for players. Right-click (or Alt+Click) to lock it for players only',
+  locked: 'Locked by the GM'
+};
+
 export class LockIcons {
   /**
    * @param {HTMLElement} root                    The rendered settings form
    * @param {SettingsLocks} locks
-   * @param {object} options
-   * @param {string} options.scope                 CSS selector of the settings window, scopes the styles
-   * @param {{toggle: string, locked: string}} options.titles  Tooltips for the GM icon and the player lock
+   * @param {object} [options]
+   * @param {string} [options.scope]               CSS selector of the settings window, scopes the styles
+   * @param {{toggle: string, locked: string}} [options.titles]  Tooltips for the GM icon and the player lock
    * @param {Record<string, string>} [options.fieldKeys]       Form field name → setting key, where they differ
+   * @param {string} [options.fieldPrefix]         Prefix of the field names to strip (e.g. "my-module." in Configure Settings); other fields are skipped
    * @param {string} [options.skipSelector]        A label already showing this (e.g. a per-player lock) gets no player icon
    */
-  static render(root, locks, { scope, titles, fieldKeys = {}, skipSelector = null }) {
+  static render(root, locks, { scope = '', titles = {}, fieldKeys = {}, fieldPrefix = '', skipSelector = null } = {}) {
     if (!root) return;
+    titles = { ...DEFAULT_TITLES, ...titles };
     LockIcons.#injectStyles(scope, locks.moduleId);
     const isGM = SettingsLocks.isGM();
     const seen = new Set();
 
-    for (const input of root.querySelectorAll('input[name], select[name]')) {
+    for (const input of root.querySelectorAll(FIELDS)) {
       const name = input.getAttribute('name');
       if (seen.has(name)) continue;
       seen.add(name);
-      const key = fieldKeys[name] ?? name;
+      if (fieldPrefix && !(name in fieldKeys) && !name.startsWith(fieldPrefix)) continue;
+      const key = fieldKeys[name] ?? name.slice(fieldPrefix.length);
       if (!locks.isLockable(key)) continue;
       const group = input.closest('.form-group');
       const label = group?.querySelector('label');
@@ -49,12 +61,13 @@ export class LockIcons {
         const icon = document.createElement('i');
         icon.className = `fas sk-lock sk-lock-toggle ${STATE_ICONS[state]}`;
         icon.dataset.key = key;
+        icon.dataset.module = locks.moduleId;
         icon.dataset.state = state;
         icon.dataset.tooltip = titles.toggle;
         label.prepend(icon);
       } else if (locks.lockedValue(key) !== undefined) {
         group.classList.add('sk-locked-group');
-        group.querySelectorAll('input, select, textarea').forEach(el => { el.disabled = true; });
+        group.querySelectorAll(CONTROLS).forEach(el => { el.disabled = true; });
         if (skipSelector && label.querySelector(skipSelector)) continue;
         const icon = document.createElement('i');
         icon.className = 'fas fa-lock sk-lock sk-locked';
@@ -63,8 +76,9 @@ export class LockIcons {
       }
     }
 
-    if (isGM && !root.dataset.skLocks) {
-      root.dataset.skLocks = 'true';
+    const bound = (root.dataset.skLocks ?? '').split(' ');
+    if (isGM && !bound.includes(locks.moduleId)) {
+      root.dataset.skLocks = [...bound.filter(Boolean), locks.moduleId].join(' ');
       const onToggle = event => LockIcons.#onToggle(event, locks);
       root.addEventListener('click', onToggle);
       root.addEventListener('contextmenu', onToggle);
@@ -79,7 +93,7 @@ export class LockIcons {
    */
   static async #onToggle(event, locks) {
     const icon = event.target.closest?.('.sk-lock-toggle');
-    if (!icon) return;
+    if (!icon || icon.dataset.module !== locks.moduleId) return;
     event.preventDefault();
     event.stopPropagation();
     const gate = event.type === 'contextmenu' || event.altKey;

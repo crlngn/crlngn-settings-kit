@@ -11,6 +11,10 @@
  * and a client map of the soft values this device has already applied. The host module registers its
  * lockable settings with `wrapOnChange`, registers the kit's storage with `registerSettings`, and calls
  * `apply` once its settings are registered. Self-contained: imports nothing from the host module.
+ *
+ * The storage can live under another module (`namespace`), with the keys in its maps prefixed
+ * (`prefix`): this is how a LockHost keeps the locks of other modules' settings. A setting that was
+ * registered without `wrapOnChange` can be wrapped afterwards with `adopt`.
  */
 
 export const LOCK_STATES = Object.freeze({
@@ -33,21 +37,29 @@ const DEFAULT_STORAGE = {
   applied: 'lockAppliedSoftValues'
 };
 
+const WRAPPED = Symbol.for('crlngn.settingsKit.wrapped');
+
 export class SettingsLocks {
   #moduleId;
   #keys;
   #storage;
+  #namespace;
+  #prefix;
 
   /**
    * @param {object} options
    * @param {string} options.moduleId          Module id the settings are registered under
    * @param {string[]} options.keys            Lockable client setting keys
    * @param {object} [options.storage]         Keys for the kit's own settings: { states, values, applied }
+   * @param {string} [options.namespace]       Module the storage settings are registered under (default: moduleId)
+   * @param {string} [options.prefix]          Prefix of this module's keys inside the storage maps
    */
-  constructor({ moduleId, keys, storage = {} }) {
+  constructor({ moduleId, keys, storage = {}, namespace = moduleId, prefix = '' }) {
     this.#moduleId = moduleId;
     this.#keys = new Set(keys);
     this.#storage = { ...DEFAULT_STORAGE, ...storage };
+    this.#namespace = namespace;
+    this.#prefix = prefix;
   }
 
   get moduleId() {
@@ -85,13 +97,13 @@ export class SettingsLocks {
     const reapply = () => {
       if (game.ready) this.apply();
     };
-    game.settings.register(this.#moduleId, this.#storage.states, {
+    game.settings.register(this.#namespace, this.#storage.states, {
       scope: 'world', config: false, type: Object, default: {}, onChange: reapply
     });
-    game.settings.register(this.#moduleId, this.#storage.values, {
+    game.settings.register(this.#namespace, this.#storage.values, {
       scope: 'world', config: false, type: Object, default: {}, onChange: reapply
     });
-    game.settings.register(this.#moduleId, this.#storage.applied, {
+    game.settings.register(this.#namespace, this.#storage.applied, {
       scope: 'client', config: false, type: Object, default: {}
     });
   }
@@ -105,7 +117,7 @@ export class SettingsLocks {
    */
   wrapOnChange(key, onChange) {
     if (!this.isLockable(key)) return onChange;
-    return (value, ...args) => {
+    const wrapped = (value, ...args) => {
       const locked = this.lockedValue(key);
       if (locked !== undefined && !SettingsLocks.#equal(locked, value)) {
         setTimeout(() => game.settings.set(this.#moduleId, key, locked), 0);
@@ -114,11 +126,39 @@ export class SettingsLocks {
       if (SettingsLocks.isGM()) {
         const state = this.getState(key);
         if (state === LOCK_STATES.SOFT || state === LOCK_STATES.LOCKED) {
-          this.#writeValues({ ...this.#read('values'), [key]: value });
+          this.#writeValues({ ...this.#read('values'), [this.#id(key)]: value });
         }
       }
       return onChange?.(value, ...args);
     };
+    wrapped[WRAPPED] = true;
+    return wrapped;
+  }
+
+  /**
+   * Wrap the onChange of lockable settings that are already registered, in place. A setting already
+   * wrapped by any copy of the kit is left alone, so it is never reverted twice.
+   * @param {string[]} [keys]  Defaults to every lockable key
+   * @returns {string[]} The keys now wrapped by this instance
+   */
+  adopt(keys = this.keys) {
+    const adopted = [];
+    for (const key of keys) {
+      const config = game.settings.settings?.get(`${this.#moduleId}.${key}`);
+      if (!config || !this.isLockable(key) || SettingsLocks.isWrapped(config)) continue;
+      config.onChange = this.wrapOnChange(key, config.onChange);
+      adopted.push(key);
+    }
+    return adopted;
+  }
+
+  /**
+   * Whether a registered setting's onChange is already wrapped by a copy of the kit.
+   * @param {object} config
+   * @returns {boolean}
+   */
+  static isWrapped(config) {
+    return !!config?.onChange?.[WRAPPED];
   }
 
   /**
@@ -126,7 +166,7 @@ export class SettingsLocks {
    * @returns {string} One of LOCK_STATES
    */
   getState(key) {
-    return this.#read('states')[key] ?? LOCK_STATES.UNLOCKED;
+    return this.#read('states')[this.#id(key)] ?? LOCK_STATES.UNLOCKED;
   }
 
   /**
@@ -140,7 +180,8 @@ export class SettingsLocks {
     const state = this.getState(key);
     if (state !== LOCK_STATES.LOCKED && state !== LOCK_STATES.GATE) return undefined;
     const values = this.#read('values');
-    return key in values ? values[key] : undefined;
+    const id = this.#id(key);
+    return id in values ? values[id] : undefined;
   }
 
   /**
@@ -159,21 +200,22 @@ export class SettingsLocks {
       ? (current === LOCK_STATES.GATE ? LOCK_STATES.LOCKED : LOCK_STATES.GATE)
       : NEXT_STATE[current];
     const values = { ...this.#read('values') };
+    const id = this.#id(key);
     let restored;
 
     if (next === LOCK_STATES.UNLOCKED) {
-      delete values[key];
+      delete values[id];
     } else if (current === LOCK_STATES.GATE && next === LOCK_STATES.LOCKED) {
-      if (key in values) {
-        restored = values[key];
+      if (id in values) {
+        restored = values[id];
         await game.settings.set(this.#moduleId, key, restored);
       }
     } else {
-      values[key] = game.settings.get(this.#moduleId, key);
+      values[id] = game.settings.get(this.#moduleId, key);
     }
 
     await this.#writeValues(values);
-    await game.settings.set(this.#moduleId, this.#storage.states, { ...this.#read('states'), [key]: next });
+    await game.settings.set(this.#namespace, this.#storage.states, { ...this.#read('states'), [id]: next });
     return { state: next, restored };
   }
 
@@ -191,12 +233,13 @@ export class SettingsLocks {
     let trackerChanged = false;
 
     for (const key of this.#keys) {
-      const state = states[key] ?? LOCK_STATES.UNLOCKED;
-      if (state === LOCK_STATES.UNLOCKED || !(key in values)) continue;
-      const value = values[key];
+      const id = this.#id(key);
+      const state = states[id] ?? LOCK_STATES.UNLOCKED;
+      if (state === LOCK_STATES.UNLOCKED || !(id in values)) continue;
+      const value = values[id];
       if (state === LOCK_STATES.SOFT) {
-        if (key in applied && SettingsLocks.#equal(applied[key], value)) continue;
-        applied[key] = value;
+        if (id in applied && SettingsLocks.#equal(applied[id], value)) continue;
+        applied[id] = value;
         trackerChanged = true;
       }
       try {
@@ -209,7 +252,7 @@ export class SettingsLocks {
       }
     }
 
-    if (trackerChanged) await game.settings.set(this.#moduleId, this.#storage.applied, applied);
+    if (trackerChanged) await game.settings.set(this.#namespace, this.#storage.applied, applied);
     return changed;
   }
 
@@ -219,7 +262,7 @@ export class SettingsLocks {
    */
   #read(store) {
     try {
-      return game.settings.get(this.#moduleId, this.#storage[store]) ?? {};
+      return game.settings.get(this.#namespace, this.#storage[store]) ?? {};
     } catch {
       return {};
     }
@@ -230,7 +273,15 @@ export class SettingsLocks {
    */
   async #writeValues(values) {
     if (SettingsLocks.#equal(values, this.#read('values'))) return;
-    await game.settings.set(this.#moduleId, this.#storage.values, values);
+    await game.settings.set(this.#namespace, this.#storage.values, values);
+  }
+
+  /**
+   * @param {string} key
+   * @returns {string} The key as stored in the lock maps
+   */
+  #id(key) {
+    return `${this.#prefix}${key}`;
   }
 
   static #equal(a, b) {

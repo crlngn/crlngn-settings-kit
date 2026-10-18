@@ -1,6 +1,6 @@
 {
   "name": "@crlngn/settings-kit",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "GM locks on Foundry VTT module client settings (unlocked / soft / locked / gate), shared by Carolingian modules",
   "license": "CC-BY-NC-4.0",
   "author": "Caroline Rozendo (Carolingian, crlngn)",
