@@ -13,20 +13,6 @@ GM locks on a Foundry VTT module's client settings, shared by Carolingian module
 
 In the settings form the GM clicks the icon to cycle unlocked → soft → locked → unlocked, and right-clicks or Alt+clicks to toggle gate. Locks never apply to the GM: the GM's own value is what players get (in gate, the value the GM had when they entered gate).
 
-## Install
-
-```json
-"dependencies": {
-  "@crlngn/settings-kit": "github:crlngn/crlngn-settings-kit#v0.3.0"
-}
-```
-
-Pin a tag so module releases build from a known version. The kit is bundled at build time, so your users don't install anything extra.
-
-If your module only needs its settings to be lockable alongside everything else the GM locks, you don't need the kit: use [Carolingian UI's settings locks API](https://github.com/crlngn/crlngn-ui#for-module-developers-settings-locks-api) instead. Nothing to bundle, and the locks are stored with Carolingian UI's. Bundle the kit when your module should have locks without depending on Carolingian UI.
-
-The kit is licensed [CC BY-NC 4.0](LICENSE): free to use and adapt with attribution, for non-commercial modules only.
-
 ## Use
 
 ```js
@@ -56,6 +42,22 @@ LockIcons.render(this.element, locks, {
 `apply()` can run during `init`: world settings are readable then, and `SettingsLocks.isGM()` falls back to the raw user data before `game.user` exists.
 
 A module with its own per-player layer resolves it around the kit. Swipe checks, in order: the GM's per-player forced override, `locks.lockedValue(key)`, the per-player soft override, then the user's value.
+
+## Install
+
+If you want to incorporate the feature without depending on Carolingian UI, you can install the settings-kit directly:
+
+```json
+"dependencies": {
+  "@crlngn/settings-kit": "github:crlngn/crlngn-settings-kit#v0.3.0"
+}
+```
+
+Pin a tag so module releases build from a known version. The kit is bundled at build time, so your users don't install anything extra.
+
+If your users have Carolingian UI, they don't need the kit: use [Carolingian UI's settings locks API](https://github.com/crlngn/crlngn-ui#for-module-developers-settings-locks-api) instead. Nothing to bundle, and the locks are stored with Carolingian UI's. Bundle the kit when your module should have locks without depending on Carolingian UI.
+
+The kit is licensed [CC BY-NC 4.0](LICENSE): free to use and adapt with attribution, for non-commercial modules only.
 
 ### Options
 
