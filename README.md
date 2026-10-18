@@ -88,6 +88,9 @@ const locks = host.register('guest-module', ['compact']);     // a guest's own s
 - `register(moduleId, keys)` wraps the onChange of settings already registered in place (`adopt`); for a setting registered later, use `locks.wrapOnChange`. Registering again adds keys.
 - `lockConfigSettings` skips the host, excluded modules, world settings, and any setting whose onChange a copy of the kit already wraps, so a module locking its own settings is never locked twice. `{ system: true }` includes the game system's settings, and `{ core: true }` includes Foundry core's.
 - `LockIcons.render(root, locks, { fieldPrefix: 'guest-module.' })` matches fields named `<module id>.<key>`, as in Configure Settings. Several modules' locks can share a form.
+- `LockIcons.renderAll(root, [locks, ...])` draws several modules' locks in one pass over the form (fields named `<module id>.<key>`); `host.render` and `watchSettingsConfig` use it. Each form gets one style tag per scope and one click listener per copy of the kit.
+- Only core, the game system and active modules are enforced (`apply`) or drawn (`render`). Locks kept for a module that's turned off stay stored and apply again once it's back on.
+- Setting a lock back to unlocked removes its entry from the stored maps, so they only hold settings that are locked.
 
 Changing a locked setting through the API still reverts for players. A setting that needs a reload gets the GM's value straight away, and it takes effect on the player's next reload (no prompt is shown).
 

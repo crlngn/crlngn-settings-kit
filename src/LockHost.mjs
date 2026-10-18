@@ -9,6 +9,8 @@
  *   core's) client settings shown in Foundry's own settings window (config: true), and
  *   `watchSettingsConfig` draws the icons.
  * A setting whose onChange a copy of the kit already wraps is never adopted, so it is never locked twice.
+ * Only core, the game system and active modules are enforced or drawn; locks kept for a module that
+ * is turned off stay stored, and apply again once it is back on.
  */
 
 import { SettingsLocks } from './SettingsLocks.mjs';
@@ -99,6 +101,23 @@ export class LockHost {
   }
 
   /**
+   * Whether a settings namespace belongs to core, the game system or an active module.
+   * @param {string} namespace
+   * @returns {boolean}
+   */
+  static isActive(namespace) {
+    if (namespace === 'core' || namespace === game.system?.id) return true;
+    return !!game.modules?.get(namespace)?.active;
+  }
+
+  /**
+   * @returns {SettingsLocks[]} The guests whose module is active
+   */
+  #activeGuests() {
+    return this.guests.filter(locks => LockHost.isActive(locks.moduleId));
+  }
+
+  /**
    * Adopt the client and user settings of active modules that are shown in Configure Settings (config: true).
    * The host's own settings, excluded modules and settings already locked by the kit are skipped.
    * Call once every module has registered its settings (setup or ready).
@@ -138,7 +157,7 @@ export class LockHost {
   }
 
   /**
-   * Draw the lock icons of every guest into a settings form.
+   * Draw the lock icons of every active guest into a settings form, in one pass.
    * @param {HTMLElement} root
    * @param {object} [options]
    * @param {string} [options.scope]
@@ -146,18 +165,16 @@ export class LockHost {
    * @param {boolean} [options.namespaced]  Field names are "<module id>.<key>", as in Configure Settings
    */
   render(root, { scope = '', titles, namespaced = false } = {}) {
-    for (const locks of this.#guests.values()) {
-      LockIcons.render(root, locks, { scope, titles, fieldPrefix: namespaced ? `${locks.moduleId}.` : '' });
-    }
+    LockIcons.renderAll(root, this.#activeGuests(), { scope, titles, namespaced });
   }
 
   /**
-   * Write the GM's values into this client's settings for every guest.
+   * Write the GM's values into this client's settings for every active guest.
    * @returns {Promise<boolean>} Whether any setting changed
    */
   async apply() {
     let changed = false;
-    for (const locks of this.#guests.values()) changed = (await locks.apply()) || changed;
+    for (const locks of this.#activeGuests()) changed = (await locks.apply()) || changed;
     return changed;
   }
 }

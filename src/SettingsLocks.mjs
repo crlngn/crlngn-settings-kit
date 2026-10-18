@@ -215,7 +215,9 @@ export class SettingsLocks {
     }
 
     await this.#writeValues(values);
-    await game.settings.set(this.#namespace, this.#storage.states, { ...this.#read('states'), [id]: next });
+    const states = { ...this.#read('states'), [id]: next };
+    if (next === LOCK_STATES.UNLOCKED) delete states[id];
+    await game.settings.set(this.#namespace, this.#storage.states, states);
     return { state: next, restored };
   }
 

@@ -1,6 +1,7 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { LockHost, SettingsLocks, LOCK_STATES } from '../src/index.mjs';
+import { LockHost, LockIcons, SettingsLocks, LOCK_STATES } from '../src/index.mjs';
+import { installDocument, makeForm, iconOf, click } from './fakeDom.mjs';
 
 globalThis.CONST = { USER_ROLES: { ASSISTANT: 3 } };
 globalThis.Hooks = { on() {} };
@@ -143,4 +144,107 @@ test('user-scoped settings are adopted like client ones', () => {
   const gm = boot(true);
   gm.game.settings.register(GUEST, 'perUser', { scope: 'user', config: true, default: 'a' });
   assert.deepEqual(gm.host.lockConfigSettings(), { [GUEST]: ['compact', 'perUser'] });
+});
+
+test('going back to unlocked removes the key from both maps', async () => {
+  const gm = boot(true);
+  gm.host.lockConfigSettings();
+  ready(gm);
+  const locks = gm.host.get(GUEST);
+  await locks.cycle('compact');
+  await locks.cycle('compact');
+  assert.equal((await locks.cycle('compact')).state, LOCK_STATES.UNLOCKED);
+  assert.ok(!(`${GUEST}.compact` in world.get(`${HOST}.guestLockStates`)));
+  assert.ok(!(`${GUEST}.compact` in world.get(`${HOST}.guestLockValues`)));
+  assert.equal(locks.getState('compact'), LOCK_STATES.UNLOCKED);
+});
+
+test('render draws every guest in one pass, with one style tag and one listener pair per form', () => {
+  const head = installDocument();
+  const gm = boot(true);
+  gm.host.lockConfigSettings({ core: true });
+  ready(gm);
+  const form = makeForm([`${GUEST}.compact`, 'core.fontSize', `${GUEST}.worldThing`, 'native.own', 'plain']);
+  gm.host.render(form, { scope: '#settings-config', namespaced: true });
+  assert.equal(form.scans, 1);
+  assert.equal(iconOf(form, `${GUEST}.compact`)?.dataset.module, GUEST);
+  assert.equal(iconOf(form, 'core.fontSize')?.dataset.module, 'core');
+  assert.equal(iconOf(form, `${GUEST}.worldThing`), null);
+  assert.equal(iconOf(form, 'native.own'), null);
+  assert.equal(iconOf(form, 'plain'), null);
+
+  gm.host.render(form, { scope: '#settings-config', namespaced: true });
+  assert.equal(form.scans, 2);
+  assert.equal(head.styles.length, 1);
+  assert.deepEqual(form.listeners.map(l => l.type), ['click', 'contextmenu']);
+});
+
+test('a click cycles the lock of the clicked icon\'s module only', async () => {
+  installDocument();
+  const gm = boot(true);
+  gm.host.lockConfigSettings({ core: true });
+  ready(gm);
+  const form = makeForm([`${GUEST}.compact`, 'core.fontSize']);
+  gm.host.render(form, { scope: '#settings-config', namespaced: true });
+  const icon = iconOf(form, 'core.fontSize');
+  await click(form, icon);
+  assert.equal(icon.dataset.state, LOCK_STATES.SOFT);
+  assert.equal(gm.host.get('core').getState('fontSize'), LOCK_STATES.SOFT);
+  assert.equal(gm.host.get(GUEST).getState('compact'), LOCK_STATES.UNLOCKED);
+});
+
+test('a player sees a lock and disabled field on locked settings only', async () => {
+  installDocument();
+  const gm = boot(true);
+  gm.host.lockConfigSettings();
+  ready(gm);
+  await gm.game.settings.set(GUEST, 'compact', true);
+  await gm.host.get(GUEST).cycle('compact');
+  await gm.host.get(GUEST).cycle('compact');
+
+  const player = boot(false);
+  player.host.lockConfigSettings({ core: true });
+  ready(player);
+  const form = makeForm([`${GUEST}.compact`, 'core.fontSize']);
+  player.host.render(form, { scope: '#settings-config', namespaced: true });
+  assert.ok(iconOf(form, `${GUEST}.compact`)?.classList.contains('sk-locked'));
+  assert.equal(form.groups[0].input.disabled, true);
+  assert.equal(iconOf(form, 'core.fontSize'), null);
+  assert.equal(form.listeners.length, 0);
+});
+
+test('locks of a module that is turned off are kept but not enforced or drawn', async () => {
+  installDocument();
+  world.set(`${HOST}.guestLockStates`, { 'sleeper.opt': LOCK_STATES.LOCKED });
+  world.set(`${HOST}.guestLockValues`, { 'sleeper.opt': 9 });
+
+  const player = boot(false);
+  player.game.modules.set('sleeper', { active: false });
+  player.game.settings.register('sleeper', 'opt', { scope: 'client', config: false, default: 1 });
+  player.host.register('sleeper', ['opt']);
+  ready(player);
+  await player.host.apply();
+  assert.equal(player.game.settings.get('sleeper', 'opt'), 1);
+
+  const form = makeForm(['sleeper.opt']);
+  player.host.render(form, { scope: '#settings-config', namespaced: true });
+  assert.equal(iconOf(form, 'sleeper.opt'), null);
+  assert.equal(form.scans, 0);
+
+  player.game.modules.set('sleeper', { active: true });
+  await player.host.apply();
+  assert.equal(player.game.settings.get('sleeper', 'opt'), 9);
+  assert.deepEqual(world.get(`${HOST}.guestLockStates`), { 'sleeper.opt': LOCK_STATES.LOCKED });
+});
+
+test('LockIcons.render keeps working for a guest drawing its own form', () => {
+  const head = installDocument();
+  const gm = boot(true);
+  const locks = gm.host.register(GUEST, ['menuOnly']);
+  ready(gm);
+  const form = makeForm(['menuOnly', 'other']);
+  LockIcons.render(form, locks, { scope: '#guest-menu' });
+  assert.equal(iconOf(form, 'menuOnly')?.dataset.key, 'menuOnly');
+  assert.equal(iconOf(form, 'other'), null);
+  assert.equal(head.styles[0].id, 'settings-kit-locks-_guest-menu');
 });
