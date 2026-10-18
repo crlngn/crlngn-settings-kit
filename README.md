@@ -17,11 +17,15 @@ In the settings form the GM clicks the icon to cycle unlocked → soft → locke
 
 ```json
 "dependencies": {
-  "@crlngn/settings-kit": "github:crlngn/crlngn-settings-kit#v0.2.0"
+  "@crlngn/settings-kit": "github:crlngn/crlngn-settings-kit#v0.3.0"
 }
 ```
 
-Pin a tag so module releases build from a known version.
+Pin a tag so module releases build from a known version. The kit is bundled at build time, so your users don't install anything extra.
+
+If your module only needs its settings to be lockable alongside everything else the GM locks, you don't need the kit: use [Carolingian UI's settings locks API](https://github.com/crlngn/crlngn-ui#for-module-developers-settings-locks-api) instead. Nothing to bundle, and the locks are stored with Carolingian UI's. Bundle the kit when your module should have locks without depending on Carolingian UI.
+
+The kit is licensed [CC BY-NC 4.0](LICENSE): free to use and adapt with attribution, for non-commercial modules only.
 
 ## Use
 
